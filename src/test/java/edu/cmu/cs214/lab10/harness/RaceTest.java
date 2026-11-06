@@ -1,5 +1,16 @@
 package edu.cmu.cs214.lab10.harness;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import edu.cmu.cs214.lab10.domain.Booking;
+import edu.cmu.cs214.lab10.domain.BookingStatus;
+import edu.cmu.cs214.lab10.domain.Room;
+import edu.cmu.cs214.lab10.service.BookingService;
+import edu.cmu.cs214.lab10.store.InMemoryBookingStore;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
 /**
  * Where your concurrency tests go.
  *
@@ -7,6 +18,47 @@ package edu.cmu.cs214.lab10.harness;
  * at, and what scenario to drive through it, is yours to work out.
  */
 class RaceTest {
+
+    private static final String WEAN = "WEH-5409";
+    private static final int START_MINUTE = 540;
+    private static final int END_MINUTE = 600;
+    private static final List<Room> ROOMS = List.of(
+            new Room(WEAN, "Wean 5409", 12),
+            new Room("GHC-4301", "Gates 4301", 30));
+
+    @Test
+    void twoCustomersCannotConfirmTheSameSlot() throws InterruptedException {
+        InMemoryBookingStore real = new InMemoryBookingStore();
+        PausingStore gated = new PausingStore(real, "insertIfNoOverlap", 1);
+        BookingService service = new BookingService(gated, ROOMS);
+
+        Thread first = new Thread(
+                () -> service.book(WEAN, START_MINUTE, END_MINUTE),
+                "customer-1");
+        first.start();
+
+        assertTrue(gated.awaitPaused(), "the first atomic check-and-insert reached the gate");
+
+        Thread second = new Thread(
+                () -> service.book(WEAN, START_MINUTE, END_MINUTE),
+                "customer-2");
+        second.start();
+        second.join(PausingStore.TIMEOUT_MILLIS);
+
+        gated.release();
+        first.join(PausingStore.TIMEOUT_MILLIS);
+        second.join(PausingStore.TIMEOUT_MILLIS);
+
+        int confirmed = 0;
+        for (Booking booking : real.bookingsForRoom(WEAN)) {
+            if (booking.status() == BookingStatus.CONFIRMED
+                    && booking.overlaps(START_MINUTE, END_MINUTE)) {
+                confirmed++;
+            }
+        }
+        assertEquals(1, confirmed,
+                "a room may have at most one confirmed booking covering a minute");
+    }
 
     // ------------------------------------------------------------------
     // Wiring example 1: wrap the store
@@ -34,8 +86,8 @@ class RaceTest {
     //   new PausingStore(real, "bookingsForRoom", 1)   // park call 1
     //   new PausingStore(real, "insert", 3)            // park call 3 of insert
     //
-    // Valid method names are the four on BookingStore: hasOverlap, insert,
-    // bookingsForRoom, cancelAndPromote. On the chosen call the wrapper
+    // Valid method names are the methods on BookingStore: hasOverlap,
+    // insertIfNoOverlap, insert, bookingsForRoom, and cancelAndPromote. On the chosen call the wrapper
     // delegates, then parks the calling thread before returning the answer it
     // already computed. The gate fires once and once only.
     // ------------------------------------------------------------------

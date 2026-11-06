@@ -53,8 +53,8 @@ public final class PausingStore implements BookingStore {
     /**
      * @param delegate     the real store, which does all the work
      * @param targetMethod the {@link BookingStore} method to park inside, by
-     *     name: {@code hasOverlap}, {@code insert}, {@code bookingsForRoom}, or
-     *     {@code cancelAndPromote}
+     *     name: {@code hasOverlap}, {@code insertIfNoOverlap}, {@code insert},
+     *     {@code bookingsForRoom}, or {@code cancelAndPromote}
      * @param targetCall   which invocation of that method to park, counting
      *     from 1 across all threads
      */
@@ -99,6 +99,11 @@ public final class PausingStore implements BookingStore {
     @Override
     public boolean hasOverlap(String roomId, int startMinute, int endMinute) {
         return gate("hasOverlap", () -> delegate.hasOverlap(roomId, startMinute, endMinute));
+    }
+
+    @Override
+    public boolean insertIfNoOverlap(Booking booking) {
+        return gate("insertIfNoOverlap", () -> delegate.insertIfNoOverlap(booking));
     }
 
     @Override
